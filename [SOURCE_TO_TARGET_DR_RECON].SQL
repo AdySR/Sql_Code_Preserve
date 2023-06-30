@@ -150,7 +150,7 @@ end
 
 
 
-if object_id(N'tempdb..#columnnames1', N'u') is not null
+if object_id(N'tempdb..#columnnames1', N'U') is not null
 begin
 	set @whereconcatstring = replace(@whereconcat,@targettablename+'.', 's');
 	set @whereconcatstringupdated = left(@whereconcatstring,len(@whereconcatstring)-3);
@@ -317,7 +317,6 @@ exec sp_executesql @deletescriptstring
 
 
 select @deletescriptcount as '@deletescriptcount' , @insertscriptcount as '@insertscriptcount' , @update_script_count as '@update_script_count'
-
 
 
 
