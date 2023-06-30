@@ -107,14 +107,14 @@ begin
 
 begin try
 
-
 set @tabledetails = concat('src_sap_r3.',@targettablename)
 set @stgtabledetails = concat('stg_sap_r3.','stg_',@targettablename)
 
-if object_id(N'tempdb..#columnnames',N'u') is not null
+if object_id(N'tempdb..#columnnames',N'U') is not null
 drop table #columnnames
-if object_id(N'tempdb..#columnnames1',N'u') is not null
+if object_id(N'tempdb..#columnnames1',N'U') is not null
 drop table #columnnames1
+
 
 create table #columnnames with(distribution= hash(column_name)) as 
 select row_number() over (order by column_name) as rownum,column_name
@@ -175,6 +175,12 @@ set @totalsourceupdatestring=N' select @totalsourceupdatecount = count(1) from s
 exec sp_executesql @totalsourceupdatestring, N'@totalsourceupdatecount int output', @totalsourceupdatecount output
 
 select @totalsourcecount as '@totalsourcecount' , @totalsourceinsertcount as '@totalsourceinsertcount' , @totalsourcedeletecount as '@totalsourcedeletecount' ,@totalsourceupdatecount as '@totalsourceupdatecount'
+
+
+--insert into [edw_CTRL].[CDW_DR_Job_Recon_Details] (DRPipelineRunDate , TableName , TotalSourceRawDataSetCount , TotalInsertCount , TotalUpdateCount , TotalDeleteCount , SourceUniqueInsertCount ,
+--SourceUniqueDeleteount , SourceUniqueUpdateCount , UniqueInsertedCount , UniqueDeletedCount , 
+--TargetBeforeLoadCount , TargetAfterLoadCount , UniqueInsertExistingInTargetCount , UniqueDeleteNotExistingInTargetCount , SourceInsertDeleteInTandemCount , InvalidOperationDatacount , TargetDupesCount)
+
 
 
 set @uniqueinsertquery ='
@@ -293,7 +299,7 @@ exec sp_executesql @update_script_count_string, N'@update_script_count int outpu
 set @update_script_string=N'
 update  t
 set  ' + @updatedstringnew + ', updated_date = '''+  convert(varchar, @updated_date, 121) +''' 	
-from	src_sap_r3.likp t inner join #uniqueupdate_'+@targettablename+' s on '+@whereconcatstringupdated
+from	src_sap_r3.'+@targettablename+' t inner join #uniqueupdate_'+@targettablename+' s on '+@whereconcatstringupdated
 print @update_script_string
 exec sp_executesql @update_script_string
 
@@ -311,6 +317,7 @@ exec sp_executesql @deletescriptstring
 
 
 select @deletescriptcount as '@deletescriptcount' , @insertscriptcount as '@insertscriptcount' , @update_script_count as '@update_script_count'
+
 
 
 
