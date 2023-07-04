@@ -3,8 +3,7 @@ set ansi_nulls on
 go
 set quoted_identifier on
 go
-alter proc [edw_dr].[source_to_target_dr_recon] 
---@targettablename [varchar](200),@keycolumn [varchar](200)
+alter proc [edw_dr].[source_to_target_dr_recon] @targettablename [varchar](200),@keycolumn [varchar](200)
 --,@reconaudit char 
 
 as
@@ -56,8 +55,8 @@ declare @columnname varchar(max);
 declare @total int;
 declare @columnname1 varchar(max);
 declare @reconaudit char = 'y';
-declare @targettablename [varchar](200) ='likp'
-declare @keycolumn [varchar](200) ='vbeln,mandt'
+--declare @targettablename [varchar](200) ='vbrp'
+--declare @keycolumn [varchar](200) ='MANDT, VBELN, POSNR'
 declare @load_date datetime = getdate()
 declare @updated_date datetime = @load_date
 declare @sourceuniqueinsertcountstring nvarchar(max)=''
@@ -99,13 +98,27 @@ declare @totalsourceupdatestring nvarchar(max)='';
 declare @totalsourceupdatecount int;
 declare @totalsourceinsertstring nvarchar(max)='';
 declare @totalsourceinsertcount int;
-
+declare @targetbeforeloadcountstring nvarchar(max)='';
+declare @targetbeforeloadcount int;
+declare @targetafterloadcountstring nvarchar(max)='';
+declare @targetafterloadcount int;
+declare @inserts_already_existing_string nvarchar(max)='';
+declare @inserts_already_existing_count int;
+declare @deletes_not_existing_string nvarchar(max)='';
+declare @deletes_not_existing_count int;
 
 if upper(@reconaudit)='y'
 begin
 
 
 begin try
+
+
+
+
+set @targetafterloadcountstring = N' select @targetafterloadcount = count(1) from src_sap_r3.'+@targettablename
+exec sp_executesql @targetafterloadcountstring, N'@targetafterloadcount int output', @targetafterloadcount output
+
 
 set @tabledetails = concat('src_sap_r3.',@targettablename)
 set @stgtabledetails = concat('stg_sap_r3.','stg_',@targettablename)
@@ -159,28 +172,32 @@ end
 
 
 
+set @targetbeforeloadcountstring = N' select @targetbeforeloadcount = count(1) from src_sap_r3.'+@targettablename
+print 'query_1#  ' + @targetbeforeloadcountstring
+exec sp_executesql @targetbeforeloadcountstring, N'@targetbeforeloadcount int output', @targetbeforeloadcount output
+
+
+
 set @totalsourcecountstring=N' select @totalsourcecount = count(1) from stg_sap_r3.stg_'+@targettablename 
+print 'query_2#  ' + @totalsourcecountstring
 exec sp_executesql @totalsourcecountstring, N'@totalsourcecount int output', @totalsourcecount output
 
 
 set @totalsourceinsertstring=N' select @totalsourceinsertcount = count(1) from stg_sap_r3.stg_'+@targettablename+' where operationondata =2'
+print 'query_3#  ' + @totalsourceinsertstring
 exec sp_executesql @totalsourceinsertstring, N'@totalsourceinsertcount int output', @totalsourceinsertcount output
 
 
 set @totalsourcedeletestring=N' select @totalsourcedeletecount = count(1) from stg_sap_r3.stg_'+@targettablename+' where operationondata =1'
+print 'query_4#  ' + @totalsourcedeletestring
 exec sp_executesql @totalsourcedeletestring, N'@totalsourcedeletecount int output', @totalsourcedeletecount output
 
 
 set @totalsourceupdatestring=N' select @totalsourceupdatecount = count(1) from stg_sap_r3.stg_'+@targettablename+' where operationondata =4'
+print 'query_5#  ' + @totalsourceupdatestring
 exec sp_executesql @totalsourceupdatestring, N'@totalsourceupdatecount int output', @totalsourceupdatecount output
 
 select @totalsourcecount as '@totalsourcecount' , @totalsourceinsertcount as '@totalsourceinsertcount' , @totalsourcedeletecount as '@totalsourcedeletecount' ,@totalsourceupdatecount as '@totalsourceupdatecount'
-
-
---insert into [edw_CTRL].[CDW_DR_Job_Recon_Details] (DRPipelineRunDate , TableName , TotalSourceRawDataSetCount , TotalInsertCount , TotalUpdateCount , TotalDeleteCount , SourceUniqueInsertCount ,
---SourceUniqueDeleteount , SourceUniqueUpdateCount , UniqueInsertedCount , UniqueDeletedCount , 
---TargetBeforeLoadCount , TargetAfterLoadCount , UniqueInsertExistingInTargetCount , UniqueDeleteNotExistingInTargetCount , SourceInsertDeleteInTandemCount , InvalidOperationDatacount , TargetDupesCount)
-
 
 
 set @uniqueinsertquery ='
@@ -206,17 +223,24 @@ from(
 select row_number() over (partition by  '+@keycolumn+' order by __$start_lsn desc) rn ,* from stg_sap_r3.stg_'+@targettablename+' where operationondata =4)t
 where rn=1'
 
+print 'query_6#' +@uniqueinsertquery
+print 'query_7#' +@uniquedeletequery
+print 'query_8#' +@uniqueupdatequery
+
 exec sp_executesql @uniqueinsertquery
 exec sp_executesql @uniquedeletequery
 exec sp_executesql @uniqueupdatequery
 
 set @sourceuniqueinsertcountstring = N'select @sourceuniqueinsertcount =count(1) from #uniqueinsert_'+@targettablename
+print 'query_9#  ' +@sourceuniqueinsertcountstring
 exec sp_executesql @sourceuniqueinsertcountstring, N'@sourceuniqueinsertcount int output', @sourceuniqueinsertcount output
 
 set @sourceuniquedeletecountstring = N'select @sourceuniquedeletecount =count(1) from #uniquedelete_'+@targettablename
+print 'query_10#  ' +@sourceuniquedeletecountstring
 exec sp_executesql @sourceuniquedeletecountstring, N'@sourceuniquedeletecount int output', @sourceuniquedeletecount output
 
 set @uniqueupdatequerycountstring = N'select @uniqueupdatequerycount =count(1) from #uniqueupdate_'+@targettablename
+print 'query_11#  ' +@uniqueupdatequerycountstring
 exec sp_executesql @uniqueupdatequerycountstring, N'@uniqueupdatequerycount int output', @uniqueupdatequerycount output
 
 select @uniqueupdatequerycount as '@uniqueupdatequerycount', @sourceuniqueinsertcount as '@sourceuniqueinsertcount', @sourceuniquedeletecount as '@sourceuniquedeletecount'
@@ -227,21 +251,21 @@ select @uniqueupdatequerycount as '@uniqueupdatequerycount', @sourceuniqueinsert
 /* handle scenario of insert and deletions in tandem */
 
 set @deletecommon_insert_delete_string ='select t.* into #deletecommon_insert_delete_'+@targettablename+'  from #uniqueinsert_'+@targettablename+' t inner join #uniquedelete_'+@targettablename+' s on '+@whereconcatstringupdated
-print @deletecommon_insert_delete_string
+print  'query_12#  ' +@deletecommon_insert_delete_string
 exec sp_executesql @deletecommon_insert_delete_string
 
 set @deletecommon_update_delete_string ='select t.* into #deletecommon_update_delete_'+@targettablename+'  from #uniqueupdate_'+@targettablename+' t inner join #uniquedelete_'+@targettablename+' s on '+@whereconcatstringupdated
-print @deletecommon_update_delete_string
+print  'query_13#  ' +@deletecommon_update_delete_string
 exec sp_executesql @deletecommon_update_delete_string
 
 
 set @source_insert_del_in_tandem_countstring = N'select @sourceinsertdeleteintandemcount = count(1) from  #deletecommon_insert_delete_'+@targettablename
-print @source_insert_del_in_tandem_countstring
+print  'query_14#  ' +@source_insert_del_in_tandem_countstring
 exec sp_executesql @source_insert_del_in_tandem_countstring, N'@sourceinsertdeleteintandemcount int output', @sourceinsertdeleteintandemcount output
 
 
 set @sourceupdatedeleteintandemcountstring = N'select @sourceupdatedeleteintandemcount = count(1) from  #deletecommon_update_delete_'+@targettablename
-print @sourceupdatedeleteintandemcountstring
+print  'query_15#  ' +@sourceupdatedeleteintandemcountstring
 exec sp_executesql @sourceupdatedeleteintandemcountstring, N'@sourceupdatedeleteintandemcount int output', @sourceupdatedeleteintandemcount output
 
 
@@ -249,18 +273,18 @@ select @sourceinsertdeleteintandemcount as '@sourceinsertdeleteintandemcount' , 
 
 
 set @deletecommoninsertstring ='delete t from #uniqueinsert_'+@targettablename+' t inner join #deletecommon_insert_delete_'+@targettablename+' s on '+@whereconcatstringupdated
-print @deletecommoninsertstring
+print  'query_16#  ' +@deletecommoninsertstring
 exec sp_executesql @deletecommoninsertstring
 set @deletecommonupdatestring ='delete t from #uniqueupdate_'+@targettablename+' t inner join #deletecommon_update_delete_'+@targettablename+' s on '+@whereconcatstringupdated
-print @deletecommonupdatestring
+print  'query_17#  ' + @deletecommonupdatestring
 exec sp_executesql @deletecommonupdatestring
 
 
 set @deletecommondeletestring ='delete t from #uniquedelete_'+@targettablename+' t inner join #deletecommon_insert_delete_'+@targettablename+' s on '+@whereconcatstringupdated
-print @deletecommondeletestring
+print  'query_18#  ' +  @deletecommondeletestring
 exec sp_executesql @deletecommondeletestring
 set @deletecommondeletestring ='delete t from #uniquedelete_'+@targettablename+' t inner join #deletecommon_update_delete_'+@targettablename+' s on '+@whereconcatstringupdated
-print @deletecommondeletestring
+print  'query_19#  ' +  @deletecommondeletestring
 exec sp_executesql @deletecommondeletestring
 
 
@@ -272,10 +296,20 @@ now we will
 
 
 /*	execute inserts	*/
+--,InsertsAlreadyExisting
+--,DeletesNotExisting
+
+
+
+set @inserts_already_existing_string =' select @inserts_already_existing_count = count(1)  
+from #uniqueinsert_'+@targettablename+' s inner join '+@tabledetails+' t	 on '+@whereconcatstringupdated
+print  'query_20#  ' + @inserts_already_existing_string
+exec sp_executesql @inserts_already_existing_string,N'@inserts_already_existing_count int output', @inserts_already_existing_count output
 
 set @insertscriptcountstring ='select @insertscriptcount = count(1)
 from #uniqueinsert_'+@targettablename+' s left join '+@tabledetails+' t	 on '+@whereconcatstringupdated+'
 where '+@oncondition
+print  'query_21#  ' +@insertscriptcountstring
 exec sp_executesql @insertscriptcountstring,N'@insertscriptcount int output', @insertscriptcount output
 
 
@@ -284,7 +318,7 @@ insert into '+@tabledetails+' ( '+@columnstring+' , load_date , updated_date )
 select '+@sourcecolumn+' '''+ convert(varchar, @load_date, 121) +''' , '''+  convert(varchar, @updated_date, 121) +''' 
 from #uniqueinsert_'+@targettablename+' s left join '+@tabledetails+' t	 on '+@whereconcatstringupdated+'
 where '+@oncondition
-print @insertscriptstring
+print  'query_22#  ' +@insertscriptstring
 exec sp_executesql @insertscriptstring
 
 /* execute updates */
@@ -300,27 +334,76 @@ set @update_script_string=N'
 update  t
 set  ' + @updatedstringnew + ', updated_date = '''+  convert(varchar, @updated_date, 121) +''' 	
 from	src_sap_r3.'+@targettablename+' t inner join #uniqueupdate_'+@targettablename+' s on '+@whereconcatstringupdated
-print @update_script_string
+print  'query_23#  ' +@update_script_string
 exec sp_executesql @update_script_string
 
 /*	execute deletion */
 
+set @deletes_not_existing_string ='select @deletes_not_existing_count = count(1)
+from #uniquedelete_'+@targettablename+' s left join '+@tabledetails+' t	 on '+@whereconcatstringupdated+'
+where '+@oncondition
+print  'query_24#  ' +@deletes_not_existing_string
+exec sp_executesql @deletes_not_existing_string,N'@deletes_not_existing_count int output', @deletes_not_existing_count output
+
 set @deletescriptcountstring ='select @deletescriptcount = count(1)
 from #uniquedelete_'+@targettablename+' s inner join '+@tabledetails+' t	 on '+@whereconcatstringupdated
+print  'query_25#  ' +@deletescriptcountstring
 exec sp_executesql @deletescriptcountstring, N'@deletescriptcount int output', @deletescriptcount output
-
 
 set @deletescriptstring='
 delete t from '+@tabledetails+' t inner join #uniquedelete_'+@targettablename+' s on '+@whereconcatstringupdated
-print @deletescriptstring
+print  'query_26#  ' +@deletescriptstring
 exec sp_executesql @deletescriptstring
-
 
 select @deletescriptcount as '@deletescriptcount' , @insertscriptcount as '@insertscriptcount' , @update_script_count as '@update_script_count'
 
+set @targetafterloadcountstring = N' select @targetafterloadcount = count(1) from src_sap_r3.'+@targettablename
+print  'query_27#  ' +@targetafterloadcountstring
+exec sp_executesql @targetafterloadcountstring, N'@targetafterloadcount int output', @targetafterloadcount output
 
 
 
+insert into [edw_CTRL].[CDW_DR_Job_Recon_Details] (
+DRPipelineRunDate
+,TableName
+,TotalSourceCount
+,TotalSourceInsertCount
+,TotalSourceUpdateCount
+,TotalSourceDeleteCount
+,SourceUniqueInsertCount
+,SourceUniqueDeleteount
+,SourceUniqueUpdateCount
+,InsertsAlreadyExisting
+,DeletesNotExisting
+,InsertedCount
+,DeletedCount
+,UpdatedCount
+,TargetBeforeLoadCount
+,TargetAfterLoadCount
+,SourceInsertDeleteInTandemCount
+,SourceUpdateDeleteInTandemCount
+,TargetDupesCount
+)
+
+Select Getdate(), 
+@targettablename, 
+@totalsourcecount, 
+@totalsourceinsertcount, 
+@totalsourceupdatecount, 
+@totalsourcedeletecount, 
+@sourceuniqueinsertcount, 
+@sourceuniquedeletecount, 
+@uniqueupdatequerycount,
+@inserts_already_existing_count,
+@deletes_not_existing_count,
+@insertscriptcount,
+@deletescriptcount,
+@update_script_count,
+@targetbeforeloadcount,
+@targetafterloadcount,
+@sourceinsertdeleteintandemcount,
+@sourceupdatedeleteintandemcount,
+null
 
 end try
 
