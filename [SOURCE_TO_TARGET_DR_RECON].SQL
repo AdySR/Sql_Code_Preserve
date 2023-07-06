@@ -3,7 +3,7 @@ set ansi_nulls on
 go
 set quoted_identifier on
 go
-alter proc [edw_dr].[source_to_target_dr_recon] @targettablename [varchar](200),@keycolumn [varchar](200)
+alter proc [edw_dr].[source_to_target_dr_reconv2] @targettablename [varchar](200),@keycolumn [varchar](200)
 --,@reconaudit char 
 
 as
@@ -106,6 +106,10 @@ declare @inserts_already_existing_string nvarchar(max)='';
 declare @inserts_already_existing_count int;
 declare @deletes_not_existing_string nvarchar(max)='';
 declare @deletes_not_existing_count int;
+declare @commoninserts_del_countstring nvarchar(max)='';
+declare @commoninserts_del_count int;
+declare @common_delete_ins_countstring nvarchar(max)='';
+declare @common_delete_ins_count int;
 
 if upper(@reconaudit)='y'
 begin
@@ -272,9 +276,21 @@ exec sp_executesql @sourceupdatedeleteintandemcountstring, N'@sourceupdatedelete
 select @sourceinsertdeleteintandemcount as '@sourceinsertdeleteintandemcount' , @sourceupdatedeleteintandemcount as '@sourceupdatedeleteintandemcount'
 
 
+set @commoninserts_del_countstring = ' select @commoninserts_del_count = count(1) from #uniqueinsert_'+@targettablename+' t inner join #deletecommon_insert_delete_'+@targettablename+' s on '+@whereconcatstringupdated
+print @commoninserts_del_countstring
+exec sp_executesql @commoninserts_del_countstring, N'@commoninserts_del_count int output', @commoninserts_del_count output
+
+
+set @common_delete_ins_countstring = ' select @common_delete_ins_count = count(1) from #uniquedelete_'+@targettablename+' t inner join #deletecommon_insert_delete_'+@targettablename+' s on '+@whereconcatstringupdated
+print @common_delete_ins_countstring
+exec sp_executesql @common_delete_ins_countstring, N'@common_delete_ins_count int output', @common_delete_ins_count output
+
+
 set @deletecommoninsertstring ='delete t from #uniqueinsert_'+@targettablename+' t inner join #deletecommon_insert_delete_'+@targettablename+' s on '+@whereconcatstringupdated
 print  'query_16#  ' +@deletecommoninsertstring
 exec sp_executesql @deletecommoninsertstring
+
+
 set @deletecommonupdatestring ='delete t from #uniqueupdate_'+@targettablename+' t inner join #deletecommon_update_delete_'+@targettablename+' s on '+@whereconcatstringupdated
 print  'query_17#  ' + @deletecommonupdatestring
 exec sp_executesql @deletecommonupdatestring
@@ -283,10 +299,13 @@ exec sp_executesql @deletecommonupdatestring
 set @deletecommondeletestring ='delete t from #uniquedelete_'+@targettablename+' t inner join #deletecommon_insert_delete_'+@targettablename+' s on '+@whereconcatstringupdated
 print  'query_18#  ' +  @deletecommondeletestring
 exec sp_executesql @deletecommondeletestring
+
+
+/*
 set @deletecommondeletestring ='delete t from #uniquedelete_'+@targettablename+' t inner join #deletecommon_update_delete_'+@targettablename+' s on '+@whereconcatstringupdated
 print  'query_19#  ' +  @deletecommondeletestring
 exec sp_executesql @deletecommondeletestring
-
+*/
 
 /* now we have clean data for dr 
 now we will 
@@ -382,7 +401,8 @@ DRPipelineRunDate
 ,TargetAfterLoadCount
 ,SourceInsertDeleteInTandemCount
 ,SourceUpdateDeleteInTandemCount
-,TargetDupesCount
+,Common_Inserts_del_count
+,Common_Delete_Ins_count
 )
 
 Select Getdate(), 
@@ -403,7 +423,8 @@ Select Getdate(),
 @targetafterloadcount,
 @sourceinsertdeleteintandemcount,
 @sourceupdatedeleteintandemcount,
-null
+@commoninserts_del_count,
+@common_delete_ins_count
 
 end try
 
