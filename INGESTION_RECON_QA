@@ -4,7 +4,7 @@ Alter PROC [edw_DR].[CDW_INGESTION_RECON] @targettablename [varchar](200),@keyco
 
 /*************************************************************************************************************************************************
 procedure name                  :     [CDW_INGESTION_RECON]
-create date / modify date       :     27 june 2023
+create date / modify date       :     27 juneS 2023
 author                          :     aditya.r     
 description                     :     this procedure is used to perform insert,update and delete operations based on staging table to the actual table
 call by                         :     cdc
@@ -228,9 +228,7 @@ set @operation_on_data_value =   ( select operationondata  from #ins_del_common_
 if(@operation_on_data_value =1)
 	begin
 
-
 	set @delete_loop_if_exists_query =N' select @delete_loop_if_exists_query_count = count(1) from #ins_del_common_loop  s inner join '+@tabledetails+'  t on '+@whereconcatstringupdated+' 	where s.sequence = ' + cast(@sequence_number as char)
-	print(@sequence_number)
 	execute sp_executesql @delete_loop_if_exists_query, N'@delete_loop_if_exists_query_count int output', @delete_loop_if_exists_query_count output
 	if (@delete_loop_if_exists_query_count =1)
 	begin
@@ -245,7 +243,6 @@ if(@operation_on_data_value =2)
 	begin
 
 	set @insert_loop_if_exists_query =N' select @insert_loop_if_exists_query_count = count(1) from 	#ins_del_common_loop s 	left join  #ins_del_common_loop_lookup  t	on '+@whereconcatstringupdated+' 	where s.sequence = ' + cast(@sequence_number as char)+' AND ( '+@oncondition +' )	'
-	print(@sequence_number)
 	execute sp_executesql @insert_loop_if_exists_query, N'@insert_loop_if_exists_query_count int output', @insert_loop_if_exists_query_count output
 	if (@insert_loop_if_exists_query_count =1)
 	begin
@@ -260,7 +257,6 @@ if(@operation_on_data_value =2)
 set @sequence_number = @sequence_number+1
 
 end
-
 
 
 set @unique_inserts_query ='	select '+@columnstring+' into #unique_inserts 
