@@ -97,6 +97,7 @@ declare @delete_loop_if_exists_query nvarchar(max)='';
 declare @insert_loop_if_exists_query nvarchar(max)='';
 declare @insert_loop_if_exists_query_count int;
 declare @delete_loop_if_exists_query_count int;
+declare @ins_del_common_loop_lookup_query nvarchar(max)='';
 
 set @tabledetails = concat('src_sap_r3.',@targettablename)
 set @stgtabledetails = concat('src_sap_r3.','stg_',@targettablename)
@@ -214,6 +215,9 @@ set @del_loop_count_string = N' select @del_loop_count = count(1) from #ins_del_
 exec sp_executesql @del_loop_count_string, N'@del_loop_count int output', @del_loop_count output
 
 
+set @ins_del_common_loop_lookup_query =N'Select s.* into #ins_del_common_loop_lookup  from #ins_del_common_loop s inner join '+@tabledetails+'  t on '+@whereconcatstringupdated
+exec sp_executesql @ins_del_common_loop_lookup_query
+
 set @record_count = ( select count(1) from #ins_del_common_loop )
 
 while (@sequence_number <= @record_count)
@@ -226,7 +230,7 @@ if(@operation_on_data_value =1)
 
 
 	set @delete_loop_if_exists_query =N' select @delete_loop_if_exists_query_count = count(1) from #ins_del_common_loop  s inner join '+@tabledetails+'  t on '+@whereconcatstringupdated+' 	where s.sequence = ' + cast(@sequence_number as char)
-	print(@delete_loop_if_exists_query)
+	print(@sequence_number)
 	execute sp_executesql @delete_loop_if_exists_query, N'@delete_loop_if_exists_query_count int output', @delete_loop_if_exists_query_count output
 	if (@delete_loop_if_exists_query_count =1)
 	begin
@@ -240,8 +244,8 @@ if(@operation_on_data_value =1)
 if(@operation_on_data_value =2)
 	begin
 
-	set @insert_loop_if_exists_query =N' select @insert_loop_if_exists_query_count = count(1) from 	#ins_del_common_loop s 	left join  '+@tabledetails+'		 t	on '+@whereconcatstringupdated+' 	where s.sequence = ' + cast(@sequence_number as char)+' AND ( '+@oncondition +' )	'
-	print(@insert_loop_if_exists_query)
+	set @insert_loop_if_exists_query =N' select @insert_loop_if_exists_query_count = count(1) from 	#ins_del_common_loop s 	left join  #ins_del_common_loop_lookup  t	on '+@whereconcatstringupdated+' 	where s.sequence = ' + cast(@sequence_number as char)+' AND ( '+@oncondition +' )	'
+	print(@sequence_number)
 	execute sp_executesql @insert_loop_if_exists_query, N'@insert_loop_if_exists_query_count int output', @insert_loop_if_exists_query_count output
 	if (@insert_loop_if_exists_query_count =1)
 	begin
@@ -249,7 +253,7 @@ if(@operation_on_data_value =2)
 	end
 
 	set @insert_loop_string = '	insert into '+@tabledetails+'  ('+@columnstring+' , LOAD_DATE)  
-	select '+@sourcecolumn+' '''+ convert(varchar, @load_date, 121) +''' from 	#ins_del_common_loop s 	left join  '+@tabledetails+'		 t	on '+@whereconcatstringupdated+' 	where s.sequence = ' + cast(@sequence_number as char)+' AND ( '+@oncondition +' )	'
+	select '+@sourcecolumn+' '''+ convert(varchar, @load_date, 121) +''' from 	#ins_del_common_loop s 	left join  #ins_del_common_loop_lookup  t	on '+@whereconcatstringupdated+' 	where s.sequence = ' + cast(@sequence_number as char)+' AND ( '+@oncondition +' )	'
 	exec sp_executesql @insert_loop_string
 
 	end
@@ -327,8 +331,8 @@ Insert into [edw_CTRL].[CDW_Job_Recon_Details] (
 ,SourceUniqueInsertCount
 ,SourceUniqueDeleteount
 ,SourceUniqueUpdateCount
-,InsertsAlreadyExisting
-,DeletesNotExisting
+,SourceInsertsAlreadyExisting
+,SourceDeletesNotExisting
 ,TargetBeforeLoadCount
 ,TargetAfterLoadCount
 )
