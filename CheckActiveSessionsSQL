@@ -1,1 +1,16 @@
 SELECT * FROM sys.dm_pdw_exec_sessions where status <> 'Closed'
+
+
+ SELECT *
+FROM sys.dm_pdw_exec_requests
+WHERE status not in ('Completed','Failed','Cancelled')
+  AND session_id <> session_id()
+ORDER BY submit_time DESC;
+
+-- Find top 10 queries longest running queries
+SELECT TOP 10 *
+FROM sys.dm_pdw_exec_requests
+ORDER BY total_elapsed_time DESC;
+
+
+kill 'SID18129887'
