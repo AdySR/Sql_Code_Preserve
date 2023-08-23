@@ -14,3 +14,33 @@ ORDER BY total_elapsed_time DESC;
 
 
 kill 'SID18129887'
+
+
+
+
+-- Query with Label
+SELECT *
+FROM sys.tables
+OPTION (LABEL = 'My Query')
+;
+
+-- Find a query with the Label 'My Query'
+-- Use brackets when querying the label column, as it it a key word
+SELECT  *
+FROM    sys.dm_pdw_exec_requests
+WHERE   [label] = 'My Query';
+
+SELECT waits.session_id,
+      waits.request_id,
+      requests.command,
+      requests.status,
+      requests.start_time,
+      waits.type,
+      waits.state,
+      waits.object_type,
+      waits.object_name
+FROM   sys.dm_pdw_waits waits
+   JOIN  sys.dm_pdw_exec_requests requests
+   ON waits.request_id=requests.request_id
+WHERE waits.request_id = 'QID####'
+ORDER BY waits.object_name, waits.object_type, waits.state;
