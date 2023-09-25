@@ -1,0 +1,277 @@
+/****** Object:  StoredProcedure [edw_DR].[CDW_INGESTION_v2]    Script Date: 25-09-2023 12:47:36 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROC [edw_DR].[CDW_INGESTION_v2] @targettablename [varchar](200),@keycolumn [varchar](200) AS
+
+
+/*************************************************************************************************************************************************
+procedure name                  :     [CDW_INGESTION]
+create date / modify date       :     27 juneS 2023
+author                          :     aditya.r     
+description                     :     this procedure is used to perform insert,update and delete operations based on staging table to the actual table
+call by                         :     cdc
+parameters(s)                   :     @targettablename - insert, update and delete operations will be performed on this table
+.........  @keycolumn - this is used in where condition to perform update and delete operations
+**************************************************************************************************************************************************/
+
+begin
+declare @tabledetails nvarchar(max);
+declare @stgtabledetails nvarchar(max);
+declare @updatedstring nvarchar(max);
+declare @whereconcatstring nvarchar(max);
+declare @whereconcatstringupdated nvarchar(max);
+declare @executesqlupdate nvarchar(max);
+declare @executesqlinsert nvarchar(max);
+declare @executesqldelete nvarchar(max);
+declare @updatedstringnew nvarchar(max);
+declare @updaterecent nvarchar(max);
+declare @inserttgtdistinctstring nvarchar(max);
+declare @inserttgtdistinctcount int;
+declare @total1 int;
+declare @i int = 1;
+declare @j int = 1;
+declare @concat as varchar(max)='';
+declare @concatnew as varchar(max)='';
+declare @updateconcat as varchar(max)='';
+declare @whereconcat as varchar(max)='';
+declare @concatremovechar varchar(max);
+declare @columnstring varchar(max);
+declare @columnstringnew varchar(max);
+declare @columnname varchar(max);
+declare @total int;
+declare @columnname1 varchar(max);
+declare @load_date datetime = getdate()
+declare @updated_date datetime = @load_date
+declare @oncondition nvarchar(max)='';
+declare @sourcecolumn nvarchar(max)=''
+declare @record_count int ;
+declare @sequence_number int = 1 ;
+declare @operation_on_data_value int;
+declare @insert_loop_string nvarchar(max)='';
+declare @delete_loop_string nvarchar(max)='';
+declare @ins_del_common_table_string nvarchar(max)='';
+declare @inserts_string nvarchar(max)='';
+declare @delete_string nvarchar(max)='';
+declare @common_delete_ins_count int;
+declare @unique_inserts_query nvarchar(max)='';
+declare @unique_deletes_query nvarchar(max)='';
+declare @unique_updates_query nvarchar(max)='';
+declare @unique_inserts_qualified_query nvarchar(max)='';
+declare @unique_deletes_qualified_query nvarchar(max)='';
+declare @insert_script_query nvarchar(max)='';
+declare @delete_script_query nvarchar(max)='';
+declare @update_script_string nvarchar(max)='';
+declare @total_source_insert_string nvarchar(max)='';
+declare @total_source_insert_count int;
+declare @total_source_delete_string nvarchar(max)='';
+declare @total_source_delete_count int;
+declare @total_source_update_string nvarchar(max)='';
+declare @total_source_update_count int;
+declare @unique_inserts_count_query nvarchar(max)='';
+declare @unique_inserts_count nvarchar(max)='';
+declare @unique_updates_count_query nvarchar(max)='';
+declare @unique_updates_count nvarchar(max)='';
+declare @unique_deletes_count_query nvarchar(max)='';
+declare @unique_deletes_count nvarchar(max)='';
+declare @target_before_load_count_string nvarchar(max)='';
+declare @target_before_load_count int;
+declare @total_source_count_string nvarchar(max)='';
+declare @total_source_count int;
+declare @in_tandem_inserts int;
+declare @in_tandem_deletes int;
+declare @reconaudit char = 'Y';
+declare @ins_loop_count_string nvarchar(max)='';
+declare @del_loop_count_string nvarchar(max)='';
+declare @ins_loop_count int;
+declare @del_loop_count int;
+declare @inserts_already_existing_string nvarchar(max)='';
+declare @inserts_already_existing_count int;
+declare @orphan_update_count_string nvarchar(max)='';
+declare @orphan_update_count int;
+declare @deletes_not_existing_string nvarchar(max)='';
+declare @deletes_not_existing_count int;
+declare @target_after_load_count_string nvarchar(max)='';
+declare @target_after_load_count int;
+declare @insert_loop_counter int =0;
+declare @delete_loop_counter int =0;
+declare @delete_loop_if_exists_query nvarchar(max)='';
+declare @insert_loop_if_exists_query nvarchar(max)='';
+declare @insert_loop_if_exists_query_count int;
+declare @delete_loop_if_exists_query_count int;
+declare @ins_del_common_loop_lookup_query nvarchar(max)='';
+declare @RankedInsDelList_Query nvarchar(max)=''
+declare @PurgeOperationInTandem nvarchar(max)='';
+declare @InsertOperationInTandem nvarchar(max)='';
+declare @PurgeBadUpdateRecords nvarchar(max)=''
+
+set @tabledetails = concat('src_sap_r3.',@targettablename)
+set @stgtabledetails = concat('src_sap_r3.','stg_',@targettablename)
+
+begin try
+
+
+if object_id(N'tempdb..#columnnames',N'U') is not null
+drop table #columnnames
+if object_id(N'tempdb..#columnnames1',N'U') is not null
+drop table #columnnames1
+
+
+create table #columnnames with(DISTRIBUTION = ROUND_ROBIN, HEAP) as 
+select row_number() over (order by column_name) as rownum,column_name
+from (select column_name from information_schema.columns where table_schema = 'src_sap_r3' and table_name = @targettablename and column_name not in('load_date'))a
+set @total = (select count(*) from #columnnames)
+create table #columnnames1 with(DISTRIBUTION = ROUND_ROBIN, HEAP) as 
+select row_number() over(order by value) as rownum, value
+from (select value from string_split(@keycolumn,','))a
+set @total1 = (select count(1) from #columnnames1)
+
+
+while(@i <= @total)
+begin
+	set @columnname = (select concat('[',column_name,']') from #columnnames where rownum = @i);
+	set @concat += @columnname + ','
+	set @concatnew += 's.' + @columnname + ','
+	set @updateconcat += 't.' + @columnname + '= s.' + @columnname + ',';
+	set @i+=1
+end
+while(@j <= @total1)
+begin
+	set @columnname1 = (select value from #columnnames1 where rownum = @j)
+	set @whereconcat += ' t.' + @columnname1 +  ' = s.' + @columnname1 + ' and ';
+	set @oncondition +=' t.' + @columnname1 + ' is null  and '
+	set @j+=1
+end
+	set @columnstring  = left(@concat, len(@concat)-1);
+	set @columnstringnew  = left(@concatnew, len(@concat)-1);
+	set @updatedstring = replace(@updateconcat,@targettablename+'.','s');
+	set @updatedstringnew = left(@updatedstring, len(@updatedstring)-1);
+	set @sourcecolumn = replace(@concat, '[','s.[')
+
+if object_id(N'tempdb..#columnnames1', N'U') is not null
+begin
+	set @whereconcatstring = replace(@whereconcat,@targettablename+'.', 's');
+	set @whereconcatstringupdated = left(@whereconcatstring,len(@whereconcatstring)-3);
+	set @oncondition = left(@oncondition,len(@oncondition)-3);
+end
+
+set @inserts_string='
+CREATE TABLE #src_ins WITH
+(
+            DISTRIBUTION = ROUND_ROBIN,
+            HEAP
+) AS
+select *  from '+@stgtabledetails+' where  operationondata =2 '
+
+set @delete_string='
+CREATE TABLE #src_del WITH
+(
+            DISTRIBUTION = ROUND_ROBIN,
+            HEAP
+) AS
+select *  from '+@stgtabledetails+' where  operationondata =1 '
+
+set @ins_del_common_table_string='
+CREATE TABLE #ins_del_common WITH
+(
+            DISTRIBUTION = ROUND_ROBIN,
+            HEAP
+) AS
+
+Select distinct '+@columnstring+',operationondata , __$start_lsn 
+from (
+select t.*  from #src_ins t inner join #src_del s on '+@whereconcatstringupdated+' 
+union all
+select s.*  from #src_ins t inner join #src_del s on '+@whereconcatstringupdated+' 
+)T  '
+
+exec sp_executesql @inserts_string
+exec sp_executesql @delete_string
+exec sp_executesql @ins_del_common_table_string
+
+-------------------------------------------------------------
+
+set @RankedInsDelList_Query = N'
+CREATE TABLE #RankedInsDelList WITH
+(
+            DISTRIBUTION = ROUND_ROBIN,
+            HEAP
+) AS
+select rn, '+@columnstring+' ,__$start_lsn , operationondata  
+from (
+select row_number() over(partition by '+@keycolumn+' order by __$start_lsn desc) rn ,*
+from #ins_del_common where __$start_lsn is not null
+) t	where rn <3	'
+
+
+exec sp_executesql @RankedInsDelList_Query
+
+CREATE TABLE #PurgeList WITH
+(
+            DISTRIBUTION = ROUND_ROBIN,
+            HEAP
+) AS
+Select * from #RankedInsDelList where operationondata =1 ;
+
+CREATE TABLE #InsertList WITH
+(
+            DISTRIBUTION = ROUND_ROBIN,
+            HEAP
+) AS
+Select * from #RankedInsDelList where operationondata =2 and rn =1 ;
+
+
+set @PurgeOperationInTandem = N'
+delete t from '+@tabledetails+' t inner join #purgeList s on '+@whereconcatstringupdated
+
+set @InsertOperationInTandem= N'
+insert into '+@tabledetails +'  ('+@columnstring+' , LOAD_DATE)  
+select '+@sourcecolumn+' '''+ convert(varchar, @load_date, 121) +''' from #InsertList s '
+
+exec sp_executesql @PurgeOperationInTandem
+exec sp_executesql @InsertOperationInTandem
+
+set @unique_inserts_query ='	select '+@columnstring+' into #unique_inserts 
+from(	select row_number() over(partition by '+@keycolumn+' order by __$start_lsn desc) rn ,* from '+@stgtabledetails+' where operationondata =2	)t	where rn=1 '
+exec sp_executesql @unique_inserts_query
+
+set @unique_deletes_query ='	select '+@columnstring+' into #unique_deletes 
+from(	select row_number() over(partition by '+@keycolumn+' order by __$start_lsn desc) rn ,* from '+@stgtabledetails+' where operationondata =1	)t	where rn=1 '
+exec sp_executesql @unique_deletes_query
+
+set @unique_updates_query='		select '+@columnstring+', __$start_lsn into #unique_updates 
+from(	select row_number() over (partition by  '+@keycolumn+' order by __$start_lsn desc) rn ,* from '+@stgtabledetails+' where operationondata =4	)t	where rn=1 '
+exec sp_executesql @unique_updates_query
+
+set @unique_inserts_qualified_query='	select * into #unique_inserts_qualified from #unique_inserts s		where  not exists( select 1 from #RankedInsDelList t where 	'+@whereconcatstringupdated+'	)	'
+exec sp_executesql @unique_inserts_qualified_query
+
+set @unique_deletes_qualified_query='	select * into #unique_deletes_qualified	from #unique_deletes s		where  not exists( select 1 from #RankedInsDelList t where 	'+@whereconcatstringupdated+'	)	'
+exec sp_executesql @unique_deletes_qualified_query
+
+set @insert_script_query = N'insert into '+@tabledetails+'  ('+@columnstring+' , LOAD_DATE)  
+select '+@sourcecolumn+' '''+ convert(varchar, @load_date, 121) +''' from 	#unique_inserts_qualified s 	left join  '+@tabledetails+'		 t	on '+@whereconcatstringupdated+' 	where '+@oncondition
+exec sp_executesql @insert_script_query
+
+set @PurgeBadUpdateRecords =N'
+delete t from #unique_updates t inner join #InsertList s on '+@whereconcatstringupdated+'  where t.__$start_lsn < s.__$start_lsn '
+exec sp_executesql @PurgeBadUpdateRecords
+
+set @update_script_string=N'update  t
+set  ' + @updatedstringnew + ', LOAD_DATE = '''+  convert(varchar, @load_date, 121) +''' 	
+from	'+@tabledetails+' t inner join #unique_updates s on '+@whereconcatstringupdated
+exec sp_executesql @update_script_string
+
+set @delete_script_query='delete t from '+@tabledetails+' t inner join #unique_deletes_qualified s on '+@whereconcatstringupdated
+exec sp_executesql @delete_script_query
+
+
+end try
+
+begin catch
+throw
+end catch
+
+end
+
